@@ -1,0 +1,41 @@
+name: Build TV Home APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+        with:
+          packages: platforms;android-34 build-tools;34.0.0
+      - uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
+      - name: Unit tests e build release (come ci.yml ufficiale)
+        working-directory: launcher
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon testReleaseUnitTest assembleRelease
+      - name: Checksum e info build
+        run: |
+          cd launcher/app/build/outputs/apk/release
+          sha256sum app-release.apk | tee app-release.apk.sha256
+          echo "commit=${GITHUB_SHA}" > build-info.txt
+          echo "repo=${GITHUB_REPOSITORY}" >> build-info.txt
+          echo "run=${GITHUB_RUN_ID}" >> build-info.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tvhome-apk
+          path: |
+            launcher/app/build/outputs/apk/release/app-release.apk
+            launcher/app/build/outputs/apk/release/app-release.apk.sha256
+            launcher/app/build/outputs/apk/release/build-info.txt
+          retention-days: 14
