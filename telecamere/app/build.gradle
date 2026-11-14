@@ -7,7 +7,7 @@ android {
         applicationId 'it.aibox.telecamere'
         minSdk 26
         targetSdk 31
-        versionCode (System.getenv('GITHUB_RUN_NUMBER') ?: '1').toInteger()
+        versionCode Integer.parseInt(System.getenv('GITHUB_RUN_NUMBER') ?: '1')
         versionName "1.0." + (System.getenv('GITHUB_RUN_NUMBER') ?: '0')
     }
     buildTypes {
