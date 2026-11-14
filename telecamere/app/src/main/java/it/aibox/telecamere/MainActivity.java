@@ -179,7 +179,9 @@ public class MainActivity extends Activity {
                 pos = vlc.getTime();
             } else return;
             if (pos == lastPos) {
-                if (++stuckChecks >= 3) scheduleReconnect("Immagine ferma");
+                // prima immagine non ancora arrivata: alcuni flussi aspettano il fotogramma chiave, attendi 30 s
+                int limit = pos <= 0 ? 6 : 3;
+                if (++stuckChecks >= limit) scheduleReconnect(pos <= 0 ? "Nessuna immagine" : "Immagine ferma");
             } else stuckChecks = 0;
             lastPos = pos;
         }

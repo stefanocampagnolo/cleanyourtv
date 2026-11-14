@@ -93,10 +93,14 @@ public class SettingsActivity extends Activity {
             String[] engines = {"VLC (compatibile)", "ExoPlayer (bassa latenza)"};
             row("Lettore", engines["exo".equals(c.engine) ? 1 : 0], () -> choose("Lettore video", engines, "exo".equals(c.engine) ? 1 : 0,
                     k -> { c.engine = k == 1 ? "exo" : "vlc"; changed(); }));
-            row("Indirizzo RTSP personalizzato", c.customUrl.isEmpty() ? "(no, usa l'NVR)" : "impostato", () ->
+            row("RTSP personalizzato – griglia", c.customUrl.isEmpty() ? "(no, usa l'NVR)" : "impostato", () ->
                     editText("rtsp://utente:password@ip:554/percorso (vuoto = usa l'NVR)", c.customUrl,
                             InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI,
                             v -> { c.customUrl = v.trim(); changed(); }));
+            row("RTSP personalizzato – schermo intero", c.customMain.isEmpty() ? "(no)" : "impostato", () ->
+                    editText("rtsp://… per lo schermo intero (vuoto = come la griglia / NVR)", c.customMain,
+                            InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI,
+                            v -> { c.customMain = v.trim(); changed(); }));
             if (idx > 0) row("Sposta su", "", () -> { cfg.cams.remove(idx); cfg.cams.add(idx - 1, c); changed(); });
             row("Rimuovi questa telecamera", "", () -> new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
                     .setTitle("Rimuovere " + c.name + "?")

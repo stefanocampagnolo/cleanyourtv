@@ -28,7 +28,8 @@ final class Config {
         int channel = 1;              // canale NVR (1, 2, 3…) → /Streaming/Channels/<ch>01 e <ch>02
         boolean gridMain = false;     // true = anche in griglia usa il flusso principale
         String engine = "vlc";        // "vlc" (libVLC) oppure "exo" (Media3 ExoPlayer)
-        String customUrl = "";        // se compilato sostituisce l'indirizzo calcolato dall'NVR
+        String customUrl = "";        // se compilato sostituisce l'indirizzo NVR nella griglia (e a schermo intero se customMain è vuoto)
+        String customMain = "";       // se compilato è l'indirizzo usato a schermo intero
     }
 
     String host = "", user = "admin", pass = "";
@@ -38,11 +39,12 @@ final class Config {
     final List<CamCfg> cams = new ArrayList<>();
 
     boolean isUsable() {
-        for (CamCfg c : cams) if (!c.customUrl.isEmpty() || !host.isEmpty()) return true;
+        for (CamCfg c : cams) if (!c.customUrl.isEmpty() || !c.customMain.isEmpty() || !host.isEmpty()) return true;
         return false;
     }
 
     String url(CamCfg c, boolean main) {
+        if (main && !c.customMain.isEmpty()) return c.customMain;
         if (!c.customUrl.isEmpty()) return c.customUrl;
         String auth = user.isEmpty() ? "" : Uri.encode(user) + ":" + Uri.encode(pass) + "@";
         return "rtsp://" + auth + host + ":" + port + "/Streaming/Channels/" + c.channel + (main ? "01" : "02");
@@ -114,6 +116,7 @@ final class Config {
             cc.gridMain = j.optBoolean("gridMain", false);
             cc.engine = j.optString("engine", "vlc");
             cc.customUrl = j.optString("customUrl", "");
+            cc.customMain = j.optString("customMain", "");
             c.cams.add(cc);
         }
         return c;
@@ -127,7 +130,7 @@ final class Config {
         JSONArray arr = new JSONArray();
         for (CamCfg c : cams) {
             arr.put(new JSONObject().put("name", c.name).put("channel", c.channel).put("gridMain", c.gridMain)
-                    .put("engine", c.engine).put("customUrl", c.customUrl));
+                    .put("engine", c.engine).put("customUrl", c.customUrl).put("customMain", c.customMain));
         }
         o.put("cameras", arr);
         return o;
