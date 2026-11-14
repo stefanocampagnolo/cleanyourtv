@@ -78,6 +78,12 @@ public class SettingsActivity extends Activity {
                 editText("Secondi per ogni telecamera", String.valueOf(cfg.cycleSec), InputType.TYPE_CLASS_NUMBER,
                         v -> { try { cfg.cycleSec = Math.max(3, Integer.parseInt(v.trim())); } catch (NumberFormatException ignored) { } changed(); }));
 
+        String[] yellow = {"Ovunque tranne TV, Televideo e HbbTV", "Ovunque", "Disattivato"};
+        String[] yellowIds = {Config.YELLOW_SMART, Config.YELLOW_ALWAYS, Config.YELLOW_OFF};
+        int yi = indexOf(yellowIds, cfg.yellowMode);
+        row("Tasto giallo apre le telecamere", yellow[yi], () -> choose("Tasto giallo", yellow, yi,
+                i -> { cfg.yellowMode = yellowIds[i]; changed(); }));
+
         for (int i = 0; i < cfg.cams.size(); i++) {
             final Config.CamCfg c = cfg.cams.get(i);
             final int idx = i;

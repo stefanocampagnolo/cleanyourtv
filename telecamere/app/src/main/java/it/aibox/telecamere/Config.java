@@ -22,6 +22,7 @@ final class Config {
 
     static final String LAYOUT_GRID = "grid", LAYOUT_BIG = "big", LAYOUT_CYCLE = "cycle";
     static final int MAX_CAMS = 4;
+    static final String YELLOW_SMART = "smart", YELLOW_ALWAYS = "always", YELLOW_OFF = "off";
 
     static final class CamCfg {
         String name = "Telecamera";
@@ -36,6 +37,7 @@ final class Config {
     int port = 554;
     String layout = LAYOUT_GRID;
     int cycleSec = 15;
+    String yellowMode = YELLOW_SMART;   // tasto giallo: apre le telecamere
     final List<CamCfg> cams = new ArrayList<>();
 
     boolean isUsable() {
@@ -107,6 +109,7 @@ final class Config {
         }
         c.layout = o.optString("layout", LAYOUT_GRID);
         c.cycleSec = Math.max(3, o.optInt("cycleSec", 15));
+        c.yellowMode = o.optString("yellowMode", YELLOW_SMART);
         JSONArray arr = o.optJSONArray("cameras");
         if (arr != null) for (int i = 0; i < arr.length() && i < MAX_CAMS; i++) {
             JSONObject j = arr.getJSONObject(i);
@@ -126,7 +129,7 @@ final class Config {
         JSONObject o = new JSONObject();
         JSONObject nvr = new JSONObject();
         nvr.put("host", host).put("port", port).put("user", user).put("pass", pass);
-        o.put("nvr", nvr).put("layout", layout).put("cycleSec", cycleSec);
+        o.put("nvr", nvr).put("layout", layout).put("cycleSec", cycleSec).put("yellowMode", yellowMode);
         JSONArray arr = new JSONArray();
         for (CamCfg c : cams) {
             arr.put(new JSONObject().put("name", c.name).put("channel", c.channel).put("gridMain", c.gridMain)
