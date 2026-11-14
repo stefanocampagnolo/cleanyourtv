@@ -9,6 +9,7 @@ android {
         targetSdk 31
         versionCode Integer.parseInt(System.getenv('GITHUB_RUN_NUMBER') ?: '1')
         versionName "1.0." + (System.getenv('GITHUB_RUN_NUMBER') ?: '0')
+        ndk { abiFilters 'armeabi-v7a' } // la Philips ha userspace a 32 bit: APK più piccolo
     }
     buildTypes {
         release {
@@ -31,4 +32,6 @@ dependencies {
     implementation "androidx.media3:media3-exoplayer:$media3"
     implementation "androidx.media3:media3-exoplayer-rtsp:$media3"
     implementation "androidx.media3:media3-ui:$media3"
+    // libVLC: per le telecamere con SDP che Media3 rifiuta (es. sprop-parameter-sets vuoto)
+    implementation 'org.videolan.android:libvlc-all:3.7.7'
 }

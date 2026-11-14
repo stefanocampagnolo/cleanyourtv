@@ -30,6 +30,9 @@ import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.ui.PlayerView;
 
 import org.json.JSONArray;
+import org.videolan.libvlc.LibVLC;
+import org.videolan.libvlc.Media;
+import org.videolan.libvlc.util.VLCVideoLayout;
 import org.json.JSONObject;
 
 import java.io.File;
@@ -40,6 +43,7 @@ import java.util.List;
 
 /**
  * Griglia di telecamere RTSP per Android TV.
+ * Campo "engine" per telecamera: "exo" (predefinito, Media3) o "vlc" (libVLC, per SDP non standard).
  * Configurazione: /sdcard/Android/data/it.aibox.telecamere/files/cameras.json (scritta via ADB dal Raspberry).
  * Telecomando: frecce = scegli riquadro, OK = schermo intero (flusso principale), Indietro = torna alla griglia.
  */
@@ -47,31 +51,48 @@ import java.util.List;
 public class MainActivity extends Activity {
 
     static final class Cam {
-        String name, sub, main;
+        String name, sub, main, engine;
     }
 
-    /** Un riquadro: player + vista + stato di riconnessione. */
+    /** Un riquadro: player (ExoPlayer o libVLC) + vista + stato di riconnessione. */
     final class Tile {
         final Cam cam;
         final String url;
         final boolean audio;
         final FrameLayout frame;
-        final PlayerView view;
+        final FrameLayout videoBox;
         final TextView status;
-        ExoPlayer player;
+        ExoPlayer player;          // motore "exo"
+        PlayerView exoView;
+        org.videolan.libvlc.MediaPlayer vlc; // motore "vlc"
+        VLCVideoLayout vlcView;
         long lastPos = -1;
         int stuckChecks = 0;
         final Runnable reconnect = this::start;
 
-        Tile(Cam cam, String url, boolean audio, FrameLayout frame, PlayerView view, TextView status) {
+        Tile(Cam cam, String url, boolean audio, FrameLayout frame, FrameLayout videoBox, TextView status) {
             this.cam = cam; this.url = url; this.audio = audio;
-            this.frame = frame; this.view = view; this.status = status;
+            this.frame = frame; this.videoBox = videoBox; this.status = status;
         }
 
         void start() {
             stop();
             status.setText("Connessione…");
             status.setVisibility(View.VISIBLE);
+            if ("vlc".equals(cam.engine)) startVlc(); else startExo();
+            lastPos = -1; stuckChecks = 0;
+        }
+
+        void startExo() {
+            if (exoView == null) {
+                exoView = new PlayerView(MainActivity.this);
+                exoView.setUseController(false);
+                exoView.setFocusable(false);
+                exoView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
+                exoView.setShutterBackgroundColor(Color.BLACK);
+                exoView.setKeepContentOnPlayerReset(true); // durante la riconnessione resta l'ultima immagine
+                videoBox.addView(exoView, new FrameLayout.LayoutParams(-1, -1));
+            }
             DefaultRenderersFactory rf = new DefaultRenderersFactory(MainActivity.this)
                     .setEnableDecoderFallback(true); // se i decoder hardware sono occupati usa quello software
             DefaultLoadControl lc = new DefaultLoadControl.Builder()
@@ -91,7 +112,7 @@ public class MainActivity extends Activity {
                     scheduleReconnect("Errore: " + e.getErrorCodeName());
                 }
             });
-            view.setPlayer(player);
+            exoView.setPlayer(player);
             RtspMediaSource src = new RtspMediaSource.Factory()
                     .setForceUseRtpTcp(true) // TCP: più stabile sul Wi-Fi
                     .setTimeoutMs(8000)
@@ -99,7 +120,39 @@ public class MainActivity extends Activity {
             player.setMediaSource(src);
             player.setPlayWhenReady(true);
             player.prepare();
-            lastPos = -1; stuckChecks = 0;
+        }
+
+        void startVlc() {
+            if (vlcView == null) {
+                vlcView = new VLCVideoLayout(MainActivity.this);
+                vlcView.setFocusable(false);
+                videoBox.addView(vlcView, new FrameLayout.LayoutParams(-1, -1));
+            }
+            vlc = new org.videolan.libvlc.MediaPlayer(libVlc());
+            vlc.attachViews(vlcView, null, false, false);
+            Media m = new Media(libVlc(), Uri.parse(url));
+            m.setHWDecoderEnabled(true, false);
+            m.addOption(":rtsp-tcp");
+            m.addOption(":network-caching=400");
+            if (!audio) m.addOption(":no-audio");
+            vlc.setMedia(m);
+            m.release();
+            final org.videolan.libvlc.MediaPlayer mine = vlc;
+            vlc.setEventListener(ev -> {
+                if (vlc != mine) return;
+                switch (ev.type) {
+                    case org.videolan.libvlc.MediaPlayer.Event.Vout:
+                        if (ev.getVoutCount() > 0) status.setVisibility(View.GONE);
+                        break;
+                    case org.videolan.libvlc.MediaPlayer.Event.EncounteredError:
+                        scheduleReconnect("Errore VLC");
+                        break;
+                    case org.videolan.libvlc.MediaPlayer.Event.EndReached:
+                        scheduleReconnect("Flusso terminato");
+                        break;
+                }
+            });
+            vlc.play();
         }
 
         void scheduleReconnect(String why) {
@@ -111,9 +164,13 @@ public class MainActivity extends Activity {
 
         /** Chiamato ogni 5 s: se il video è fermo da ~15 s riconnette. */
         void watchdog() {
-            if (player == null) return;
-            if (player.getPlaybackState() == Player.STATE_IDLE) return; // già in riconnessione
-            long pos = player.getCurrentPosition();
+            long pos;
+            if (player != null) {
+                if (player.getPlaybackState() == Player.STATE_IDLE) return; // già in riconnessione
+                pos = player.getCurrentPosition();
+            } else if (vlc != null) {
+                pos = vlc.getTime();
+            } else return;
             if (pos == lastPos) {
                 if (++stuckChecks >= 3) scheduleReconnect("Immagine ferma");
             } else stuckChecks = 0;
@@ -123,11 +180,38 @@ public class MainActivity extends Activity {
         void stop() {
             handler.removeCallbacks(reconnect);
             if (player != null) {
-                view.setPlayer(null);
+                exoView.setPlayer(null);
                 player.release();
                 player = null;
             }
+            if (vlc != null) {
+                org.videolan.libvlc.MediaPlayer v = vlc;
+                vlc = null;
+                v.setEventListener(null);
+                v.stop();
+                v.detachViews();
+                v.release();
+            }
         }
+    }
+
+    LibVLC libVlcInstance;
+
+    LibVLC libVlc() {
+        if (libVlcInstance == null) {
+            ArrayList<String> opts = new ArrayList<>();
+            opts.add("--rtsp-tcp");
+            opts.add("--no-stats");
+            opts.add("--no-sub-autodetect-file");
+            libVlcInstance = new LibVLC(this, opts);
+        }
+        return libVlcInstance;
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (libVlcInstance != null) { libVlcInstance.release(); libVlcInstance = null; }
+        super.onDestroy();
     }
 
     final Handler handler = new Handler(Looper.getMainLooper());
@@ -190,6 +274,7 @@ public class MainActivity extends Activity {
                 c.name = o.optString("name", "Telecamera " + (i + 1));
                 c.sub = o.optString("sub", o.optString("main", ""));
                 c.main = o.optString("main", c.sub);
+                c.engine = o.optString("engine", "exo"); // "exo" (Media3) oppure "vlc" (libVLC)
                 if (!c.sub.isEmpty()) cams.add(c);
             }
         } catch (Exception e) {
@@ -220,13 +305,9 @@ public class MainActivity extends Activity {
         frame.setFocusable(focusable);
         frame.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
 
-        PlayerView pv = new PlayerView(this);
-        pv.setUseController(false);
-        pv.setFocusable(false);
-        pv.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
-        pv.setShutterBackgroundColor(Color.BLACK);
-        pv.setKeepContentOnPlayerReset(true); // durante la riconnessione resta l'ultima immagine
-        frame.addView(pv, new FrameLayout.LayoutParams(-1, -1));
+        FrameLayout videoBox = new FrameLayout(this);
+        videoBox.setFocusable(false);
+        frame.addView(videoBox, new FrameLayout.LayoutParams(-1, -1));
 
         TextView label = new TextView(this);
         label.setText(cam.name);
@@ -245,7 +326,7 @@ public class MainActivity extends Activity {
         status.setGravity(Gravity.CENTER);
         frame.addView(status, new FrameLayout.LayoutParams(-1, -1));
 
-        Tile t = new Tile(cam, url, audio, frame, pv, status);
+        Tile t = new Tile(cam, url, audio, frame, videoBox, status);
         tiles.add(t);
         return t;
     }
