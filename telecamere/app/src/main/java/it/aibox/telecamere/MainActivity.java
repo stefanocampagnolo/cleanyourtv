@@ -11,6 +11,7 @@ import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.TextureView;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -21,13 +22,13 @@ import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
+import androidx.media3.common.VideoSize;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.rtsp.RtspMediaSource;
 import androidx.media3.ui.AspectRatioFrameLayout;
-import androidx.media3.ui.PlayerView;
 
 import org.json.JSONArray;
 import org.videolan.libvlc.LibVLC;
@@ -63,7 +64,8 @@ public class MainActivity extends Activity {
         final FrameLayout videoBox;
         final TextView status;
         ExoPlayer player;          // motore "exo"
-        PlayerView exoView;
+        AspectRatioFrameLayout exoView;
+        TextureView exoTexture;
         org.videolan.libvlc.MediaPlayer vlc; // motore "vlc"
         VLCVideoLayout vlcView;
         long lastPos = -1;
@@ -85,13 +87,13 @@ public class MainActivity extends Activity {
 
         void startExo() {
             if (exoView == null) {
-                exoView = new PlayerView(MainActivity.this);
-                exoView.setUseController(false);
-                exoView.setFocusable(false);
+                // TextureView (composizione GPU) invece di SurfaceView: la TV ha pochi livelli video
+                // hardware e con 3 SurfaceView alcuni riquadri diventavano neri.
+                exoView = new AspectRatioFrameLayout(MainActivity.this);
                 exoView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
-                exoView.setShutterBackgroundColor(Color.BLACK);
-                exoView.setKeepContentOnPlayerReset(true); // durante la riconnessione resta l'ultima immagine
-                videoBox.addView(exoView, new FrameLayout.LayoutParams(-1, -1));
+                exoTexture = new TextureView(MainActivity.this);
+                exoView.addView(exoTexture, new FrameLayout.LayoutParams(-1, -1));
+                videoBox.addView(exoView, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
             }
             DefaultRenderersFactory rf = new DefaultRenderersFactory(MainActivity.this)
                     .setEnableDecoderFallback(true); // se i decoder hardware sono occupati usa quello software
@@ -108,11 +110,15 @@ public class MainActivity extends Activity {
                     else if (state == Player.STATE_BUFFERING) { status.setText("Caricamento…"); status.setVisibility(View.VISIBLE); }
                     else if (state == Player.STATE_ENDED) scheduleReconnect("Flusso terminato");
                 }
+                @Override public void onVideoSizeChanged(VideoSize vs) {
+                    if (vs.width > 0 && vs.height > 0)
+                        exoView.setAspectRatio(vs.width * vs.pixelWidthHeightRatio / vs.height);
+                }
                 @Override public void onPlayerError(PlaybackException e) {
                     scheduleReconnect("Errore: " + e.getErrorCodeName());
                 }
             });
-            exoView.setPlayer(player);
+            player.setVideoTextureView(exoTexture);
             RtspMediaSource src = new RtspMediaSource.Factory()
                     .setForceUseRtpTcp(true) // TCP: più stabile sul Wi-Fi
                     .setTimeoutMs(8000)
@@ -129,7 +135,7 @@ public class MainActivity extends Activity {
                 videoBox.addView(vlcView, new FrameLayout.LayoutParams(-1, -1));
             }
             vlc = new org.videolan.libvlc.MediaPlayer(libVlc());
-            vlc.attachViews(vlcView, null, false, false);
+            vlc.attachViews(vlcView, null, false, true); // true = TextureView (vedi sopra)
             Media m = new Media(libVlc(), Uri.parse(url));
             m.setHWDecoderEnabled(true, false);
             m.addOption(":rtsp-tcp");
@@ -180,7 +186,6 @@ public class MainActivity extends Activity {
         void stop() {
             handler.removeCallbacks(reconnect);
             if (player != null) {
-                exoView.setPlayer(null);
                 player.release();
                 player = null;
             }
