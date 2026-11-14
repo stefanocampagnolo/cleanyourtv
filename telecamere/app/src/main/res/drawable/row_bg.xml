@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- riga delle impostazioni: evidenziata quando selezionata col telecomando -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true">
+        <shape><solid android:color="#33FFC107" /><stroke android:width="3dp" android:color="#FFC107" /><corners android:radius="8dp" /></shape>
+    </item>
+    <item>
+        <shape><solid android:color="#1AFFFFFF" /><corners android:radius="8dp" /></shape>
+    </item>
+</selector>

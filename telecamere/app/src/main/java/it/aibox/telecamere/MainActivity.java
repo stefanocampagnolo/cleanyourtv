@@ -1,6 +1,7 @@
 package it.aibox.telecamere;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
@@ -16,6 +17,7 @@ import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.OptIn;
 import androidx.media3.common.C;
@@ -30,22 +32,17 @@ import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.rtsp.RtspMediaSource;
 import androidx.media3.ui.AspectRatioFrameLayout;
 
-import org.json.JSONArray;
 import org.videolan.libvlc.LibVLC;
 import org.videolan.libvlc.Media;
 import org.videolan.libvlc.util.VLCVideoLayout;
-import org.json.JSONObject;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Griglia di telecamere RTSP per Android TV.
  * Campo "engine" per telecamera: "exo" (predefinito, Media3) o "vlc" (libVLC, per SDP non standard).
- * Configurazione: /sdcard/Android/data/it.aibox.telecamere/files/cameras.json (scritta via ADB dal Raspberry).
+ * Configurazione: schermata Impostazioni (OK tenuto premuto / tasto MENU), salvata in memoria privata (Config).
  * Telecomando: frecce = scegli riquadro, OK = schermo intero (flusso principale), Indietro = torna alla griglia.
  */
 @OptIn(markerClass = UnstableApi.class)
@@ -150,6 +147,9 @@ public class MainActivity extends Activity {
                     case org.videolan.libvlc.MediaPlayer.Event.Vout:
                         if (ev.getVoutCount() > 0) status.setVisibility(View.GONE);
                         break;
+                    case org.videolan.libvlc.MediaPlayer.Event.TimeChanged:
+                        if (status.getVisibility() == View.VISIBLE) status.setVisibility(View.GONE);
+                        break;
                     case org.videolan.libvlc.MediaPlayer.Event.EncounteredError:
                         scheduleReconnect("Errore VLC");
                         break;
@@ -242,13 +242,43 @@ public class MainActivity extends Activity {
         setContentView(root);
     }
 
+    Config cfg;
+    int bigIndex = 0;          // disposizione "una grande": quale telecamera è grande
+    boolean hintShown = false;
+
+    final Runnable cycleTask = new Runnable() {
+        @Override public void run() {
+            if (fullscreenIndex >= 0 && cams.size() > 1) showFullscreen((fullscreenIndex + 1) % cams.size());
+        }
+    };
+
     @Override
     protected void onStart() {
         super.onStart();
-        String err = loadConfig();
-        if (err != null) { showMessage(err); return; }
-        if (fullscreenIndex >= 0) showFullscreen(fullscreenIndex); else showGrid();
+        String imported = Config.importFromFile(this);
+        if (imported != null) Toast.makeText(this, imported, Toast.LENGTH_LONG).show();
+        cfg = Config.load(this);
+        cams.clear();
+        for (Config.CamCfg c : cfg.cams) {
+            Cam cam = new Cam();
+            cam.name = c.name;
+            cam.main = cfg.url(c, true);
+            cam.sub = c.gridMain ? cam.main : cfg.url(c, false);
+            cam.engine = c.engine;
+            cams.add(cam);
+        }
+        if (!cfg.isUsable() || cams.isEmpty()) { openSettings(); return; }
+        if (fullscreenIndex >= cams.size()) fullscreenIndex = -1;
+        if (focusIndex >= cams.size()) focusIndex = 0;
+        if (bigIndex >= cams.size()) bigIndex = 0;
+        if (Config.LAYOUT_CYCLE.equals(cfg.layout)) showFullscreen(fullscreenIndex >= 0 ? fullscreenIndex : 0);
+        else if (fullscreenIndex >= 0) showFullscreen(fullscreenIndex);
+        else showGrid();
         handler.postDelayed(watchdogTask, 5000);
+        if (!hintShown) {
+            hintShown = true;
+            Toast.makeText(this, "Tieni premuto OK per le impostazioni", Toast.LENGTH_SHORT).show();
+        }
     }
 
     @Override
@@ -260,46 +290,14 @@ public class MainActivity extends Activity {
     }
 
     void releaseAll() {
+        handler.removeCallbacks(cycleTask);
         for (Tile t : tiles) t.stop();
         tiles.clear();
         root.removeAllViews();
     }
 
-    String loadConfig() {
-        cams.clear();
-        File f = new File(getExternalFilesDir(null), "cameras.json");
-        try (FileInputStream in = new FileInputStream(f)) {
-            byte[] buf = new byte[(int) f.length()];
-            int n = 0;
-            while (n < buf.length) { int r = in.read(buf, n, buf.length - n); if (r < 0) break; n += r; }
-            JSONArray arr = new JSONObject(new String(buf, 0, n, StandardCharsets.UTF_8)).getJSONArray("cameras");
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject o = arr.getJSONObject(i);
-                Cam c = new Cam();
-                c.name = o.optString("name", "Telecamera " + (i + 1));
-                c.sub = o.optString("sub", o.optString("main", ""));
-                c.main = o.optString("main", c.sub);
-                c.engine = o.optString("engine", "exo"); // "exo" (Media3) oppure "vlc" (libVLC)
-                if (!c.sub.isEmpty()) cams.add(c);
-            }
-        } catch (Exception e) {
-            return "Configurazione mancante o non valida:\n" + f.getAbsolutePath()
-                    + "\n\n" + e.getClass().getSimpleName() + ": " + e.getMessage()
-                    + "\n\nCaricala dal Raspberry (ai-box/tools/tv-cameras).";
-        }
-        if (cams.isEmpty()) return "Nessuna telecamera in " + f.getAbsolutePath();
-        return null;
-    }
-
-    void showMessage(String msg) {
-        releaseAll();
-        TextView tv = new TextView(this);
-        tv.setText(msg);
-        tv.setTextColor(Color.WHITE);
-        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
-        tv.setGravity(Gravity.CENTER);
-        tv.setPadding(dp(48), dp(48), dp(48), dp(48));
-        root.addView(tv, new FrameLayout.LayoutParams(-1, -1));
+    void openSettings() {
+        startActivity(new Intent(this, SettingsActivity.class));
     }
 
     Tile makeTile(Cam cam, String url, boolean audio, boolean focusable) {
@@ -309,6 +307,7 @@ public class MainActivity extends Activity {
         frame.setPadding(p, p, p, p);
         frame.setFocusable(focusable);
         frame.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+        frame.setOnLongClickListener(v -> { openSettings(); return true; }); // OK tenuto premuto
 
         FrameLayout videoBox = new FrameLayout(this);
         videoBox.setFocusable(false);
@@ -336,32 +335,64 @@ public class MainActivity extends Activity {
         return t;
     }
 
+    /** Riquadro della griglia: OK = azione, focus memorizzato. */
+    View gridTile(int idx, Runnable onOk) {
+        Tile t = makeTile(cams.get(idx), cams.get(idx).sub, false, true);
+        t.frame.setOnClickListener(v -> onOk.run());
+        t.frame.setOnFocusChangeListener((v, has) -> { if (has) focusIndex = idx; });
+        return t.frame;
+    }
+
+    /** Casella libera della griglia: scorciatoia per le impostazioni. */
+    View settingsCell() {
+        TextView tv = new TextView(this);
+        tv.setText("⚙  Impostazioni\n\n(oppure tieni premuto OK)");
+        tv.setTextColor(0xFF9AA5B1);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
+        tv.setGravity(Gravity.CENTER);
+        tv.setFocusable(true);
+        tv.setBackgroundResource(R.drawable.tile_bg);
+        tv.setOnClickListener(v -> openSettings());
+        return tv;
+    }
+
     void showGrid() {
         releaseAll();
         fullscreenIndex = -1;
         int n = cams.size();
-        int cols = n <= 1 ? 1 : 2;
-        int rows = (n + cols - 1) / cols;
-        LinearLayout col = new LinearLayout(this);
-        col.setOrientation(LinearLayout.VERTICAL);
-        root.addView(col, new FrameLayout.LayoutParams(-1, -1));
-        for (int r = 0; r < rows; r++) {
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            col.addView(row, new LinearLayout.LayoutParams(-1, 0, 1f));
-            for (int c = 0; c < cols; c++) {
-                int i = r * cols + c;
-                View cell;
-                if (i < n) {
+        if (Config.LAYOUT_BIG.equals(cfg.layout) && n >= 2) {
+            // una grande a sinistra (2/3), le altre impilate a destra; OK su una piccola la rende grande
+            LinearLayout h = new LinearLayout(this);
+            h.setOrientation(LinearLayout.HORIZONTAL);
+            root.addView(h, new FrameLayout.LayoutParams(-1, -1));
+            h.addView(gridTile(bigIndex, () -> showFullscreen(bigIndex)), new LinearLayout.LayoutParams(0, -1, 2f));
+            LinearLayout right = new LinearLayout(this);
+            right.setOrientation(LinearLayout.VERTICAL);
+            h.addView(right, new LinearLayout.LayoutParams(0, -1, 1f));
+            for (int i = 0; i < n; i++) {
+                if (i == bigIndex) continue;
+                final int idx = i;
+                right.addView(gridTile(i, () -> { bigIndex = idx; focusIndex = idx; showGrid(); }),
+                        new LinearLayout.LayoutParams(-1, 0, 1f));
+            }
+        } else {
+            int cols = n <= 1 ? 1 : 2;
+            int cells = n == 1 ? 1 : 4;
+            int rows = (cells + cols - 1) / cols;
+            LinearLayout col = new LinearLayout(this);
+            col.setOrientation(LinearLayout.VERTICAL);
+            root.addView(col, new FrameLayout.LayoutParams(-1, -1));
+            for (int r = 0; r < rows; r++) {
+                LinearLayout row = new LinearLayout(this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                col.addView(row, new LinearLayout.LayoutParams(-1, 0, 1f));
+                for (int c = 0; c < cols; c++) {
+                    int i = r * cols + c;
                     final int idx = i;
-                    Tile t = makeTile(cams.get(i), cams.get(i).sub, false, true);
-                    t.frame.setOnClickListener(v -> showFullscreen(idx));
-                    t.frame.setOnFocusChangeListener((v, has) -> { if (has) focusIndex = idx; });
-                    cell = t.frame;
-                } else {
-                    cell = new View(this); // casella vuota (es. 3 telecamere su griglia 2x2)
+                    View cell = i < n ? gridTile(i, () -> showFullscreen(idx))
+                            : (i == n ? settingsCell() : new View(this));
+                    row.addView(cell, new LinearLayout.LayoutParams(0, -1, 1f));
                 }
-                row.addView(cell, new LinearLayout.LayoutParams(0, -1, 1f));
             }
         }
         // avvio scaglionato: meno picchi di carico su TV e telecamere
@@ -369,8 +400,7 @@ public class MainActivity extends Activity {
             Tile t = tiles.get(i);
             handler.postDelayed(t::start, 300L * i);
         }
-        int f = Math.min(focusIndex, tiles.size() - 1);
-        tiles.get(f).frame.requestFocus();
+        for (Tile t : tiles) if (t.cam == cams.get(Math.min(focusIndex, n - 1))) t.frame.requestFocus();
     }
 
     void showFullscreen(int idx) {
@@ -382,14 +412,20 @@ public class MainActivity extends Activity {
         t.frame.setBackgroundColor(Color.BLACK);
         t.frame.requestFocus();
         t.start();
+        if (Config.LAYOUT_CYCLE.equals(cfg.layout)) handler.postDelayed(cycleTask, cfg.cycleSec * 1000L);
     }
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_MENU || keyCode == KeyEvent.KEYCODE_SETTINGS) {
+            openSettings();
+            return true;
+        }
         if (fullscreenIndex >= 0) {
             int n = cams.size();
             switch (keyCode) {
                 case KeyEvent.KEYCODE_BACK:
+                    if (Config.LAYOUT_CYCLE.equals(cfg.layout)) break; // in rotazione Indietro esce dall'app
                     focusIndex = fullscreenIndex;
                     showGrid();
                     return true;
