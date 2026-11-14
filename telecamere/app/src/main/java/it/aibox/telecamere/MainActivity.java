@@ -136,6 +136,7 @@ public class MainActivity extends Activity {
             Media m = new Media(libVlc(), Uri.parse(url));
             m.setHWDecoderEnabled(true, false);
             m.addOption(":rtsp-tcp");
+            m.addOption(":rtsp-frame-buffer-size=2000000");
             m.addOption(":network-caching=400");
             if (!audio) m.addOption(":no-audio");
             vlc.setMedia(m);
@@ -206,6 +207,9 @@ public class MainActivity extends Activity {
         if (libVlcInstance == null) {
             ArrayList<String> opts = new ArrayList<>();
             opts.add("--rtsp-tcp");
+            // i fotogrammi chiave dei flussi principali (H.265 1080p/1440p) superano i 250 KB predefiniti:
+            // venivano troncati e VLC restava fermo su "Waiting for VPS/SPS/PPS"
+            opts.add("--rtsp-frame-buffer-size=2000000");
             opts.add("--no-stats");
             opts.add("--no-sub-autodetect-file");
             libVlcInstance = new LibVLC(this, opts);
