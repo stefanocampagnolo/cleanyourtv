@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- banner 320x180 per la Home Android TV: sfondo scuro + icona telecamera -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp" android:height="180dp"
+    android:viewportWidth="320" android:viewportHeight="180">
+    <path android:fillColor="#1E2A38" android:pathData="M0,0h320v180h-320z" />
+    <path android:fillColor="#2E7D32" android:pathData="M100,62h88a10,10 0,0 1,10 10v36a10,10 0,0 1,-10 10h-88a10,10 0,0 1,-10 -10v-36a10,10 0,0 1,10 -10z" />
+    <path android:fillColor="#2E7D32" android:pathData="M204,80l28,-16v52l-28,-16z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M144,90m-16,0a16,16 0,1 1,32 0a16,16 0,1 1,-32 0" />
+    <path android:fillColor="#1E2A38" android:pathData="M144,90m-8,0a8,8 0,1 1,16 0a8,8 0,1 1,-16 0" />
+</vector>
